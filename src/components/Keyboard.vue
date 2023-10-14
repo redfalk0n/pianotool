@@ -1,50 +1,63 @@
 <script setup lang="ts">
 import { ref, Ref, computed } from 'vue'
-import { times, cloneDeep } from 'lodash-es'
+import { cloneDeep, times } from 'lodash-es'
 import { useSound } from '@vueuse/sound'
 import { Vex } from 'vexflow'
 import { onMounted } from 'vue'
 
-const { Factory, EasyScore, System } = Vex.Flow
+const { Factory } = Vex.Flow
 
 onMounted(() => {
+  drawScore()
+})
+
+const drawNote = (pkey: PKey) => {
+  voices.push('C#6/q')
+  drawScore()
+}
+
+const voices: String[] = []
+const drawScore = () => {
   const vf = new Factory({
     renderer: { elementId: 'output', width: 500, height: 200 },
   })
 
   const score = vf.EasyScore()
   const system = vf.System()
+  let normVoices: String[] = cloneDeep(voices)
+  if (voices.length === 0 || voices.length % 4 !== 0) {
+    times(4 - (voices.length % 4), () => normVoices.push('B4/r'))
+  }
 
   system
     .addStave({
-      voices: [
-        score.voice(score.notes('C#5/q, B4, A4, G#4', { stem: 'up' })),
-        score.voice(score.notes('C#4/h, C#4', { stem: 'down' })),
-      ],
+      voices: voices.length > 0 ? [score.voice(score.notes(normVoices.join(', '), { stem: 'up' }))] : [],
     })
     .addClef('treble')
     .addTimeSignature('4/4')
 
   vf.draw()
-})
+}
+
+interface Sound {
+  play: Function
+  stop: Function
+  pause: Function
+  isPlaying: Ref<boolean>
+  duration: Ref<number | null>
+}
 
 interface PKey {
   note: string
   sharp: boolean
   noteNum: number
   octave: number
+  sound: Sound
+  active: boolean
 }
 
-const keySounds = times(24, num => {
-  const { play } = useSound(`/public/keys/key${num + 1}.ogg`)
-  return play
-})
-// const { play } = useSound('/public/keys/key01.ogg')
-
-const playNote = (index: number) => {
-  keySounds[index]()
-}
-const octaves = ref(2)
+const isMouseDown = ref(false)
+const octaves = ref(3)
 const spacings = computed(() => {
   return {
     key: 100 / octaves.value / 7,
@@ -53,46 +66,95 @@ const spacings = computed(() => {
   }
 })
 
-const octave: PKey[] = [
-  { note: 'Do', sharp: false, noteNum: 0, octave: 0 },
-  { note: 'Do', sharp: true, noteNum: 0, octave: 0 },
-  { note: 'Re', sharp: false, noteNum: 1, octave: 0 },
-  { note: 'Re', sharp: true, noteNum: 1, octave: 0 },
-  { note: 'Mi', sharp: false, noteNum: 2, octave: 0 },
-  { note: 'Fa', sharp: false, noteNum: 3, octave: 0 },
-  { note: 'Fa', sharp: true, noteNum: 3, octave: 0 },
-  { note: 'Sol', sharp: false, noteNum: 4, octave: 0 },
-  { note: 'Sol', sharp: true, noteNum: 4, octave: 0 },
-  { note: 'La', sharp: false, noteNum: 5, octave: 0 },
-  { note: 'La', sharp: true, noteNum: 5, octave: 0 },
-  { note: 'Si', sharp: false, noteNum: 6, octave: 0 },
-]
+const notations = {
+  0: ['C_1', 'D_1', 'E_1', 'F_1', 'G_1', 'A_1', 'B_1'],
+  1: ['C', 'D', 'E', 'F', 'G', 'A', 'B'],
+  2: ['cc', 'dd', 'ee', 'ff', 'gg', 'aa', 'bb'],
+  3: ['c1', 'd1', 'e1', 'f1', 'g1', 'a1', 'b1'],
+  4: ['c2', 'd2', 'e2', 'f2', 'g2', 'a2', 'b2'],
+  5: ['c3', 'd3', 'e3', 'f3', 'g3', 'a3', 'b3'],
+  6: ['c4', 'd4', 'e4', 'f4', 'g4', 'a4', 'b4'],
+}
 
-const pkeys: Ref<PKey[]> = computed(() => {
-  return times(octaves.value, num =>
-    cloneDeep(octave).map(pk => {
-      pk.octave = num
-      return pk
-    }),
-  ).flat()
+let keyboard: PKey[] = []
+
+Object.entries(notations).forEach(oct => {
+  oct[1].forEach((key, index) => {
+    const sound = useSound(`/public/keys/${key}.mp3`)
+    keyboard.push({
+      note: key,
+      octave: Number(oct[0]),
+      noteNum: index,
+      sharp: false,
+      sound: sound,
+      active: false,
+    })
+    if ([0, 1, 3, 4, 5].includes(index)) {
+      const sharpSound = useSound(`/public/keys/${key}s.mp3`)
+      keyboard.push({
+        note: `${key}s`,
+        octave: Number(oct[0]),
+        noteNum: index,
+        sharp: true,
+        sound: sharpSound,
+        active: false,
+      })
+    }
+  })
 })
-console.log(pkeys)
+
+const pkeys: Ref<PKey[]> = ref([])
+
+if (octaves.value === 1) {
+  pkeys.value = cloneDeep(keyboard).slice(36, 48)
+} else if (octaves.value === 2) {
+  pkeys.value = cloneDeep(keyboard).slice(36, 60)
+} else if (octaves.value === 3) {
+  pkeys.value = cloneDeep(keyboard).slice(24, 60)
+} else {
+  pkeys.value = keyboard
+}
 </script>
 
 <template>
   <div>
+    <v-btn @click="drawNote(pkeys[0])">asd</v-btn>
     <v-container>
-      <div class="keys">
+      <div class="keys" @mouseleave="isMouseDown = false">
         <div v-for="(pkey, index) in pkeys" style="display: contents" :key="pkey.note">
           <div
             :class="{ key: true, sharp: pkey.sharp }"
             :style="{
               width: `${pkey.sharp ? spacings.sharpKey : spacings.key}%`,
               marginLeft: pkey.sharp
-                ? `${pkey.noteNum * spacings.key + pkey.octave * 7 * spacings.key + spacings.sharpKeyMargin}%`
+                ? `${
+                    pkey.noteNum * spacings.key + Math.floor(index / 12) * 7 * spacings.key + spacings.sharpKeyMargin
+                  }%`
                 : '',
+              background: pkey.active ? 'gray' : '',
             }"
-            @click="playNote(index)"
+            @mouseenter="
+              () => {
+                if (isMouseDown) {
+                  pkey.active = true
+                  pkey.sound.play()
+                }
+              }
+            "
+            @mousedown="
+              () => {
+                pkey.active = true
+                isMouseDown = true
+                pkey.sound.play()
+              }
+            "
+            @mouseup="
+              () => {
+                pkey.active = false
+                isMouseDown = false
+              }
+            "
+            @mouseleave="() => (pkey.active = false)"
           ></div>
         </div>
       </div>
