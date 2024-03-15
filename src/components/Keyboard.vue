@@ -1,42 +1,51 @@
 <script setup lang="ts">
-import { ref, Ref, computed } from 'vue'
+import { ref, Ref, computed, onMounted } from 'vue'
 import { cloneDeep, times } from 'lodash-es'
 import { useSound } from '@vueuse/sound'
-import { Vex } from 'vexflow'
-import { onMounted } from 'vue'
+import { Accidental, Beam, Formatter, RenderContext, Renderer, Stave, StaveNote, Tuplet, Voice } from 'vexflow'
 
-const { Factory } = Vex.Flow
+let context: RenderContext
+let stave: Stave
+const staveContainer = ref()
+const notes: Ref<StaveNote[]> = ref([])
+const durations = ['1', '2', '4', '8', '16']
+const currentDuration = ref('1')
 
 onMounted(() => {
-  drawScore()
+  const renderer = new Renderer(staveContainer.value, Renderer.Backends.SVG)
+  renderer.resize(1200, 500)
+  context = renderer.getContext()
+  redrawStave()
 })
 
-const drawNote = (pkey: PKey) => {
-  voices.push('C#6/q')
-  drawScore()
+// const clearStave = () => {
+//   redrawStave()
+//   notes = []
+// }
+
+const redrawStave = () => {
+  context.clear()
+  stave = new Stave(10, 40, notes.value.length * 50 + 100)
+  stave.addClef('treble').addTimeSignature('4/4')
+  stave.setContext(context).draw()
+
+  // trioles
+  notes.value.push(new StaveNote({ keys: ['c/4'], duration: currentDuration.value }))
+  notes.value.push(new StaveNote({ keys: ['c/4'], duration: currentDuration.value }))
+  notes.value.push(new StaveNote({ keys: ['c/4'], duration: currentDuration.value }))
+  const tupl = new Tuplet(notes.value)
+  Formatter.FormatAndDraw(context, stave, notes.value, { align_rests: true, auto_beam: true })
+  tupl.setContext(context).draw()
 }
 
-const voices: String[] = []
-const drawScore = () => {
-  const vf = new Factory({
-    renderer: { elementId: 'output', width: 500, height: 200 },
-  })
-
-  const score = vf.EasyScore()
-  const system = vf.System()
-  let normVoices: String[] = cloneDeep(voices)
-  if (voices.length === 0 || voices.length % 4 !== 0) {
-    times(4 - (voices.length % 4), () => normVoices.push('B4/r'))
+const drawNote = (pkey: PKey) => {
+  const note = new StaveNote({ keys: [pkey.note.replace('_', '/')], duration: currentDuration.value })
+  if (pkey.sharp) {
+    note.addModifier(new Accidental('#'))
   }
-
-  system
-    .addStave({
-      voices: voices.length > 0 ? [score.voice(score.notes(normVoices.join(', '), { stem: 'up' }))] : [],
-    })
-    .addClef('treble')
-    .addTimeSignature('4/4')
-
-  vf.draw()
+  notes.value.push(note)
+  redrawStave()
+  Formatter.FormatAndDraw(context, stave, notes.value, { align_rests: true, auto_beam: true })
 }
 
 interface Sound {
@@ -69,9 +78,9 @@ const spacings = computed(() => {
 const notations = {
   0: ['C_1', 'D_1', 'E_1', 'F_1', 'G_1', 'A_1', 'B_1'],
   1: ['C', 'D', 'E', 'F', 'G', 'A', 'B'],
-  2: ['cc', 'dd', 'ee', 'ff', 'gg', 'aa', 'bb'],
-  3: ['c1', 'd1', 'e1', 'f1', 'g1', 'a1', 'b1'],
-  4: ['c2', 'd2', 'e2', 'f2', 'g2', 'a2', 'b2'],
+  2: ['c_3', 'd_3', 'e_3', 'f_3', 'g_3', 'a_3', 'b_3'],
+  3: ['c_4', 'd_4', 'e_4', 'f_4', 'g_4', 'a_4', 'b_4'],
+  4: ['c_5', 'd_5', 'e_5', 'f_5', 'g_5', 'a_5', 'b_5'],
   5: ['c3', 'd3', 'e3', 'f3', 'g3', 'a3', 'b3'],
   6: ['c4', 'd4', 'e4', 'f4', 'g4', 'a4', 'b4'],
 }
@@ -80,7 +89,7 @@ let keyboard: PKey[] = []
 
 Object.entries(notations).forEach(oct => {
   oct[1].forEach((key, index) => {
-    const sound = useSound(`/public/keys/${key}.mp3`)
+    const sound = useSound(`/keys/${key}.mp3`)
     keyboard.push({
       note: key,
       octave: Number(oct[0]),
@@ -90,7 +99,7 @@ Object.entries(notations).forEach(oct => {
       active: false,
     })
     if ([0, 1, 3, 4, 5].includes(index)) {
-      const sharpSound = useSound(`/public/keys/${key}s.mp3`)
+      const sharpSound = useSound(`/keys/${key}s.mp3`)
       keyboard.push({
         note: `${key}s`,
         octave: Number(oct[0]),
@@ -118,7 +127,35 @@ if (octaves.value === 1) {
 
 <template>
   <div>
-    <v-btn @click="drawNote(pkeys[0])">asd</v-btn>
+    <v-btn
+      @click="
+        () => {
+          notes = []
+          redrawStave()
+        }
+      "
+      >Clear</v-btn
+    >
+    <v-btn
+      @click="
+        () => {
+          notes.pop()
+          redrawStave()
+          Formatter.FormatAndDraw(context, stave, notes, { align_rests: true, auto_beam: true })
+        }
+      "
+      >Back</v-btn
+    >
+    <div class="d-flex mt-3">
+      <v-btn
+        v-for="duration in durations"
+        :key="duration"
+        @click="currentDuration = duration"
+        :active="currentDuration === duration"
+      >
+        {{ duration }}
+      </v-btn>
+    </div>
     <v-container>
       <div class="keys" @mouseleave="isMouseDown = false">
         <div v-for="(pkey, index) in pkeys" style="display: contents" :key="pkey.note">
@@ -138,6 +175,7 @@ if (octaves.value === 1) {
                 if (isMouseDown) {
                   pkey.active = true
                   pkey.sound.play()
+                  drawNote(pkey)
                 }
               }
             "
@@ -146,6 +184,7 @@ if (octaves.value === 1) {
                 pkey.active = true
                 isMouseDown = true
                 pkey.sound.play()
+                drawNote(pkey)
               }
             "
             @mouseup="
@@ -158,7 +197,7 @@ if (octaves.value === 1) {
           ></div>
         </div>
       </div>
-      <div id="output"></div>
+      <div id="output" ref="staveContainer"></div>
       <!-- <v-card :width="500" class="settings mt-5" elevation="0">
         <v-text-field v-model="octaves" label="Октавы" type="number"></v-text-field>
       </v-card> -->
